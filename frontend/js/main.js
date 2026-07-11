@@ -5,8 +5,8 @@ function login() {
 
   const url =
     role === "doctor"
-      ? "https://hospital-management-system-gbr9.onrender.com/api/doctors/login"
-      : "https://hospital-management-system-gbr9.onrender.com/api/users/login";
+      ? "https://samyakayurvedicclinic.onrender.com/api/doctors/login"
+      : "https://samyakayurvedicclinic.onrender.com/api/users/login";
 
   fetch(url, {
     method: "POST",
@@ -59,7 +59,7 @@ function registerUser() {
   }
 
   fetch(
-    "https://hospital-management-system-gbr9.onrender.com/api/users/register",
+    "https://samyakayurvedicclinic.onrender.com/api/users/register",
     {
       method: "POST",
       headers: {
