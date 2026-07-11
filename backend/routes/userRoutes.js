@@ -983,21 +983,6 @@ router.post("/reset-password-public", async (req, res) => {
   }
 });
 
-// GET user by ID (Generic - Keep at bottom)
-router.get('/:id', auth, async (req, res) => {
-  try {
-    if (!require('mongoose').Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ success: false, message: 'Invalid User ID format' });
-    }
-    const user = await User.findById(req.params.id).select("-password");
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    res.json({ success: true, user });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
-
 // DIAGNOSTIC EMAIL TEST ENDPOINT (Public)
 router.get("/test-email-diagnostic", async (req, res) => {
   try {
@@ -1030,6 +1015,21 @@ router.get("/test-email-diagnostic", async (req, res) => {
         EMAIL_FROM: process.env.EMAIL_FROM || "NOT SET"
       }
     });
+  }
+});
+
+// GET user by ID (Generic - Keep at bottom)
+router.get('/:id', auth, async (req, res) => {
+  try {
+    if (!require('mongoose').Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid User ID format' });
+    }
+    const user = await User.findById(req.params.id).select("-password");
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
