@@ -4,7 +4,7 @@ const { sendEmail } = require('./emailService');
  * Send account activation email
  * @param {string} email - Recipient email
  * @param {string} token - Activation token
- * @param {string} host - Host (not used with FRONTEND_URL)
+ * @param {string} host - Host
  */
 module.exports = async (email, token, host) => {
   console.log(`📧 [sendActivation] Starting activation email send to: ${email}`);
@@ -19,11 +19,24 @@ module.exports = async (email, token, host) => {
   console.log(`🔗 [DEVELOPER_NOTICE] The activation link for ${email} is: ${link}`);
 
   const htmlContent = `
-    <h2>Welcome to Samyak Hospital</h2>
-    <p>A patient record has been created for you.</p>
-    <p>Please click the button below to set your password and activate your account:</p>
-    <a href="${link}" style="display:inline-block;padding:10px 20px;background:#155c3b;color:#fff;text-decoration:none;border-radius:5px;font-weight:bold;">Activate Account</a>
-    <p style="margin-top:20px;font-size:12px;color:#666;">This link expires in 24 hours.</p>
+    <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eaf4ee; border-radius: 12px; overflow: hidden; color: #333;">
+      <div style="background-color: #155c3b; color: #fff; padding: 20px; text-align: center;">
+        <h2 style="margin: 0;">Samyak Ayurvedic Hospital</h2>
+      </div>
+      <div style="padding: 30px;">
+        <p>Dear Patient,</p>
+        <p>A patient record has been successfully created for you at Samyak Ayurvedic Hospital.</p>
+        <p>To finalize your registration, set your password, and activate your account, please click the button below:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${link}" style="display: inline-block; padding: 12px 30px; background-color: #155c3b; color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 6px rgba(21, 92, 59, 0.15);">Activate Account</a>
+        </div>
+        <p style="font-size: 13px; color: #666;">This activation link is valid for 24 hours. If you need any assistance, please contact our support desk.</p>
+        <div style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
+          <p style="margin: 0; color: #4f6f60; font-weight: 600;">Samyak Ayurvedic Hospital</p>
+          <p style="font-size: 12px; color: #888;">Wishing you good health.</p>
+        </div>
+      </div>
+    </div>
   `;
 
   try {

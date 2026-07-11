@@ -88,7 +88,12 @@ const transporter = {
       console.log("   Subject:", mailOptions.subject);
 
       const defaultFrom = cachedTestAccount ? cachedTestAccount.user : (process.env.EMAIL_USER || "noreply@samyakhospital.com");
-      const fromAddress = mailOptions.from || process.env.EMAIL_FROM || defaultFrom;
+      let fromAddress = mailOptions.from || process.env.EMAIL_FROM || defaultFrom;
+
+      // Force fromAddress to match EMAIL_USER if authenticating via Gmail to pass SPF/DKIM checks
+      if (process.env.EMAIL_USER && process.env.EMAIL_USER.endsWith("@gmail.com")) {
+        fromAddress = process.env.EMAIL_USER;
+      }
 
       const msg = {
         from: `"Samyak Ayurvedic Hospital" <${fromAddress}>`,
