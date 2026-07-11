@@ -81,9 +81,7 @@ const getTransporter = async () => {
  * Transporter wrapper for backward compatibility with existing codebase
  */
 const transporter = {
-  /**
-   * Send email with logging (uses SendGrid Web API on Render to bypass SMTP blocks)
-   */
+  sendMailWithLog: async (mailOptions) => {
     if (process.env.RENDER === "true" && !process.env.SENDGRID_API_KEY) {
       console.warn("⚠️  [Nodemailer] Warning: Running on Render but SENDGRID_API_KEY is not defined in your Render Dashboard. Falling back to direct SMTP which will fail with a Connection Timeout.");
     }
