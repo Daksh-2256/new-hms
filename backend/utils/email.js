@@ -82,13 +82,13 @@ const getTransporter = async () => {
  */
 const transporter = {
   sendMailWithLog: async (mailOptions) => {
-    if (process.env.RENDER === "true" && !process.env.SENDGRID_API_KEY) {
-      console.warn("⚠️  [Nodemailer] Warning: Running on Render but SENDGRID_API_KEY is not defined in your Render Dashboard. Falling back to direct SMTP which will fail with a Connection Timeout.");
+    if (!process.env.SENDGRID_API_KEY) {
+      console.warn("⚠️  [Nodemailer] Warning: SENDGRID_API_KEY is not defined. Falling back to direct SMTP which may fail with a Connection Timeout if ports are blocked.");
     }
 
     // Determine whether to use SendGrid HTTPS API instead of direct SMTP
-    // Render blocks direct SMTP (ports 25, 465, 587), so we bypass this by calling SendGrid's HTTPS endpoint
-    const useSendGrid = process.env.SENDGRID_API_KEY && (process.env.RENDER === "true" || process.env.NODE_ENV === "production");
+    // Bypasses SMTP blocks (both Render firewall and local ISP blocks) by calling SendGrid's HTTPS endpoint
+    const useSendGrid = !!process.env.SENDGRID_API_KEY;
 
     if (useSendGrid) {
       try {
