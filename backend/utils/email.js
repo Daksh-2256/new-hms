@@ -1,4 +1,10 @@
 const nodemailer = require("nodemailer");
+const sgMail = require("@sendgrid/mail");
+
+// Initialize SendGrid if API key is provided
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 // Cached ethereal test account to avoid creating a new one on every email send
 let cachedTestAccount = null;
@@ -39,7 +45,7 @@ const getTransporter = async () => {
     }
   }
 
-  // Configuration object for general SMTP
+  // Configuration object for general SMTP with explicit connection timeouts to prevent hanging
   const smtpConfig = {
     host: process.env.EMAIL_HOST || "smtp.gmail.com",
     port: parseInt(process.env.EMAIL_PORT, 10) || 587,
@@ -48,6 +54,9 @@ const getTransporter = async () => {
       user: user,
       pass: pass,
     },
+    connectionTimeout: 10000, // 10 seconds timeout
+    greetingTimeout: 10000,
+    socketTimeout: 10000
   };
 
   // Optimization: use built-in "gmail" service config if user is using Gmail
@@ -59,6 +68,9 @@ const getTransporter = async () => {
         user: user,
         pass: pass,
       },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000
     });
   }
 
@@ -70,16 +82,63 @@ const getTransporter = async () => {
  */
 const transporter = {
   /**
-   * Send email with logging
-   * @param {Object} mailOptions - Email options
-   * @param {string} mailOptions.to - Recipient email
-   * @param {string} mailOptions.subject - Email subject
-   * @param {string} [mailOptions.html] - HTML content
-   * @param {string} [mailOptions.text] - Plain text content
-   * @param {string} [mailOptions.from] - Sender email (optional)
-   * @param {Array} [mailOptions.attachments] - Email attachments (optional)
+   * Send email with logging (uses SendGrid Web API on Render to bypass SMTP blocks)
    */
   sendMailWithLog: async (mailOptions) => {
+    // Determine whether to use SendGrid HTTPS API instead of direct SMTP
+    // Render blocks direct SMTP (ports 25, 465, 587), so we bypass this by calling SendGrid's HTTPS endpoint
+    const useSendGrid = process.env.SENDGRID_API_KEY && (process.env.RENDER === "true" || process.env.NODE_ENV === "production");
+
+    if (useSendGrid) {
+      try {
+        console.log("📧 [SendGrid Bypass] Sending email via SendGrid Web API (HTTPS)...");
+        console.log("   To:", mailOptions.to);
+        console.log("   Subject:", mailOptions.subject);
+
+        const fromAddress = mailOptions.from || process.env.SENDGRID_FROM_EMAIL || "samyakhospital5678@gmail.com";
+
+        const msg = {
+          to: mailOptions.to,
+          from: `"Samyak Ayurvedic Hospital" <${fromAddress}>`,
+          subject: mailOptions.subject,
+          html: mailOptions.html,
+          text: mailOptions.text
+        };
+
+        if (mailOptions.attachments && mailOptions.attachments.length > 0) {
+          msg.attachments = mailOptions.attachments.map(att => {
+            let contentStr = "";
+            if (Buffer.isBuffer(att.content)) {
+              contentStr = att.content.toString("base64");
+            } else if (typeof att.content === "string") {
+              contentStr = Buffer.from(att.content).toString("base64");
+            }
+            return {
+              filename: att.filename,
+              content: contentStr,
+              type: att.type || att.contentType,
+              disposition: "attachment"
+            };
+          });
+        }
+
+        if (mailOptions.replyTo) {
+          msg.replyTo = mailOptions.replyTo;
+        }
+
+        const info = await sgMail.send(msg);
+        console.log("✅ Email sent successfully via SendGrid Web API");
+        return { messageId: info[0]?.headers?.["x-message-id"] || "sg-msg-id" };
+      } catch (error) {
+        console.error("❌ SendGrid Email send FAILED:");
+        console.error("   To:", mailOptions.to);
+        console.error("   Subject:", mailOptions.subject);
+        console.error("   Error:", error.message || error);
+        throw error;
+      }
+    }
+
+    // Fallback: use standard Nodemailer SMTP (local development)
     try {
       const client = await getTransporter();
       
@@ -106,8 +165,8 @@ const transporter = {
       if (mailOptions.attachments && mailOptions.attachments.length > 0) {
         msg.attachments = mailOptions.attachments.map(att => ({
           filename: att.filename,
-          content: att.content, // Nodemailer natively supports Buffer, string, or Stream
-          contentType: att.type || att.contentType // Map standard types
+          content: att.content,
+          contentType: att.type || att.contentType
         }));
       }
 
@@ -154,6 +213,13 @@ const transporter = {
    * Verify transporter connection configuration
    */
   verify: async (callback) => {
+    // If using SendGrid on production, we bypass Nodemailer verification
+    const useSendGrid = process.env.SENDGRID_API_KEY && (process.env.RENDER === "true" || process.env.NODE_ENV === "production");
+    if (useSendGrid) {
+      if (callback) callback(null, true);
+      return Promise.resolve(true);
+    }
+
     try {
       const client = await getTransporter();
       if (callback) {
