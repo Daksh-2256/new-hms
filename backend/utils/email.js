@@ -1,113 +1,67 @@
+const axios = require("axios");
 const nodemailer = require("nodemailer");
-const sgMail = require("@sendgrid/mail");
 
-// Initialize SendGrid if API key is provided
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-}
-
-// Cached ethereal test account to avoid creating a new one on every email send
+// Cached Ethereal test account to avoid creating a new one on every local fallback send
 let cachedTestAccount = null;
 
-/**
- * Dynamically create and configure a Nodemailer transporter.
- * Picks up environment variables from process.env.
- * Automatically falls back to Ethereal Email if placeholders are detected.
- */
-const getTransporter = async () => {
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_PASS;
-
-  // Detect placeholder values
-  const isPlaceholder = !user || user === "your-email@gmail.com" || !pass || pass === "your-app-password";
-
-  if (isPlaceholder) {
-    if (!cachedTestAccount) {
-      console.log("ℹ️  [Nodemailer] Placeholder email credentials detected. Generating temporary Ethereal testing account...");
-      try {
-        cachedTestAccount = await nodemailer.createTestAccount();
-        console.log(`✅ [Nodemailer] Temporary test account generated: ${cachedTestAccount.user}`);
-      } catch (err) {
-        console.error("❌ [Nodemailer] Failed to generate Ethereal test account:", err.message);
-      }
-    }
-
-    if (cachedTestAccount) {
-      return nodemailer.createTransport({
-        host: "smtp.ethereal.email",
-        port: 587,
-        secure: false,
-        auth: {
-          user: cachedTestAccount.user,
-          pass: cachedTestAccount.pass
-        }
-      });
+const getEtherealTransporter = async () => {
+  if (!cachedTestAccount) {
+    console.log("ℹ️  [Brevo Fallback] Generating temporary Ethereal testing account for local email checks...");
+    try {
+      cachedTestAccount = await nodemailer.createTestAccount();
+      console.log(`✅ [Brevo Fallback] Temporary test account generated: ${cachedTestAccount.user}`);
+    } catch (err) {
+      console.error("❌ [Brevo Fallback] Failed to generate Ethereal test account:", err.message);
     }
   }
 
-  // Configuration object for general SMTP with explicit connection timeouts to prevent hanging
-  const smtpConfig = {
-    host: process.env.EMAIL_HOST || "smtp.gmail.com",
-    port: parseInt(process.env.EMAIL_PORT, 10) || 587,
-    secure: process.env.EMAIL_SECURE === "true", // true for 465, false for other ports
-    auth: {
-      user: user,
-      pass: pass,
-    },
-    connectionTimeout: 10000, // 10 seconds timeout
-    greetingTimeout: 10000,
-    socketTimeout: 10000
-  };
-
-  // Optimization: use built-in "gmail" service config if user is using Gmail
-  const isGmailHost = !process.env.EMAIL_HOST || process.env.EMAIL_HOST === "smtp.gmail.com";
-  if (isGmailHost && user && user.endsWith("@gmail.com")) {
+  if (cachedTestAccount) {
     return nodemailer.createTransport({
-      service: "gmail",
+      host: "smtp.ethereal.email",
+      port: 587,
+      secure: false,
       auth: {
-        user: user,
-        pass: pass,
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 10000
+        user: cachedTestAccount.user,
+        pass: cachedTestAccount.pass
+      }
     });
   }
-
-  return nodemailer.createTransport(smtpConfig);
+  return null;
 };
 
 /**
  * Transporter wrapper for backward compatibility with existing codebase
  */
 const transporter = {
+  /**
+   * Send email with logging (uses Brevo Web API over HTTPS)
+   */
   sendMailWithLog: async (mailOptions) => {
-    if (!process.env.SENDGRID_API_KEY) {
-      console.warn("⚠️  [Nodemailer] Warning: SENDGRID_API_KEY is not defined. Falling back to direct SMTP which may fail with a Connection Timeout if ports are blocked.");
-    }
+    const brevoKey = process.env.BREVO_API_KEY;
+    const useBrevo = brevoKey && brevoKey !== "your-brevo-api-key";
 
-    // Determine whether to use SendGrid HTTPS API instead of direct SMTP
-    // Bypasses SMTP blocks (both Render firewall and local ISP blocks) by calling SendGrid's HTTPS endpoint
-    const useSendGrid = !!process.env.SENDGRID_API_KEY;
-
-    if (useSendGrid) {
+    if (useBrevo) {
       try {
-        console.log("📧 [SendGrid Bypass] Sending email via SendGrid Web API (HTTPS)...");
+        console.log("📧 Sending email via Brevo Web API (HTTPS)...");
         console.log("   To:", mailOptions.to);
         console.log("   Subject:", mailOptions.subject);
 
-        const fromAddress = mailOptions.from || process.env.SENDGRID_FROM_EMAIL || "samyakhospital5678@gmail.com";
+        const fromEmail = process.env.BREVO_SENDER_EMAIL || "samyakhospital5678@gmail.com";
+        const fromName = process.env.BREVO_SENDER_NAME || "Samyak Ayurvedic Hospital";
 
-        const msg = {
-          to: mailOptions.to,
-          from: `"Samyak Ayurvedic Hospital" <${fromAddress}>`,
+        const payload = {
+          sender: { name: fromName, email: fromEmail },
+          to: [{ email: mailOptions.to }],
           subject: mailOptions.subject,
-          html: mailOptions.html,
-          text: mailOptions.text
+          htmlContent: mailOptions.html
         };
 
+        if (mailOptions.text) {
+          payload.textContent = mailOptions.text;
+        }
+
         if (mailOptions.attachments && mailOptions.attachments.length > 0) {
-          msg.attachments = mailOptions.attachments.map(att => {
+          payload.attachments = mailOptions.attachments.map(att => {
             let contentStr = "";
             if (Buffer.isBuffer(att.content)) {
               contentStr = att.content.toString("base64");
@@ -115,48 +69,52 @@ const transporter = {
               contentStr = Buffer.from(att.content).toString("base64");
             }
             return {
-              filename: att.filename,
-              content: contentStr,
-              type: att.type || att.contentType,
-              disposition: "attachment"
+              name: att.filename,
+              content: contentStr
             };
           });
         }
 
         if (mailOptions.replyTo) {
-          msg.replyTo = mailOptions.replyTo;
+          payload.replyTo = { email: mailOptions.replyTo };
         }
 
-        const info = await sgMail.send(msg);
-        console.log("✅ Email sent successfully via SendGrid Web API");
-        return { messageId: info[0]?.headers?.["x-message-id"] || "sg-msg-id" };
+        const res = await axios.post("https://api.brevo.com/v3/smtp/email", payload, {
+          headers: {
+            "api-key": brevoKey,
+            "content-type": "application/json"
+          }
+        });
+
+        console.log("✅ Email sent successfully via Brevo Web API");
+        console.log("   MessageID:", res.data.messageId);
+        return { messageId: res.data.messageId };
       } catch (error) {
-        console.error("❌ SendGrid Email send FAILED:");
+        console.error("❌ Brevo Email send FAILED:");
         console.error("   To:", mailOptions.to);
         console.error("   Subject:", mailOptions.subject);
-        console.error("   Error:", error.message || error);
+        if (error.response && error.response.data) {
+          console.error("   Brevo API Error:", JSON.stringify(error.response.data));
+        } else {
+          console.error("   Error:", error.message);
+        }
         throw error;
       }
     }
 
-    // Fallback: use standard Nodemailer SMTP (local development)
+    // Fallback: use Ethereal local testing
     try {
-      const client = await getTransporter();
+      const client = await getEtherealTransporter();
+      if (!client) {
+        throw new Error("Ethereal test transporter failed to initialize.");
+      }
       
-      console.log("📧 Email send via Nodemailer:");
+      console.log("📧 [Fallback] Sending email via local Ethereal SMTP:");
       console.log("   To:", mailOptions.to);
       console.log("   Subject:", mailOptions.subject);
 
-      const defaultFrom = cachedTestAccount ? cachedTestAccount.user : (process.env.EMAIL_USER || "noreply@samyakhospital.com");
-      let fromAddress = mailOptions.from || process.env.EMAIL_FROM || defaultFrom;
-
-      // Force fromAddress to match EMAIL_USER if authenticating via Gmail to pass SPF/DKIM checks
-      if (process.env.EMAIL_USER && process.env.EMAIL_USER.endsWith("@gmail.com")) {
-        fromAddress = process.env.EMAIL_USER;
-      }
-
       const msg = {
-        from: `"Samyak Ayurvedic Hospital" <${fromAddress}>`,
+        from: `"Samyak Ayurvedic Hospital" <${cachedTestAccount.user}>`,
         to: mailOptions.to,
         subject: mailOptions.subject,
         html: mailOptions.html,
@@ -171,14 +129,9 @@ const transporter = {
         }));
       }
 
-      if (mailOptions.replyTo) {
-        msg.replyTo = mailOptions.replyTo;
-      }
-
       const info = await client.sendMail(msg);
-      console.log("✅ Email sent successfully via Nodemailer");
-      console.log("   MessageID:", info.messageId);
-
+      console.log("✅ [Fallback] Email sent successfully via Ethereal SMTP");
+      
       const testUrl = nodemailer.getTestMessageUrl(info);
       if (testUrl) {
         console.log(`✉️  [DEVELOPER_NOTICE] Preview the sent email at: ${testUrl}`);
@@ -186,19 +139,10 @@ const transporter = {
 
       return info;
     } catch (error) {
-      console.error("❌ Email send FAILED:");
+      console.error("❌ Ethereal fallback email send FAILED:");
       console.error("   To:", mailOptions.to);
       console.error("   Subject:", mailOptions.subject);
       console.error("   Error:", error.message);
-      console.error("   Diagnostic Configuration Info:", {
-        EMAIL_USER: process.env.EMAIL_USER ? `${process.env.EMAIL_USER.substring(0, 4)}***@${process.env.EMAIL_USER.split('@')[1]}` : "NOT SET",
-        EMAIL_PASS_LENGTH: process.env.EMAIL_PASS ? process.env.EMAIL_PASS.length : 0,
-        EMAIL_PASS_IS_PLACEHOLDER: process.env.EMAIL_PASS === "your-app-password",
-        EMAIL_HOST: process.env.EMAIL_HOST || "NOT SET",
-        EMAIL_PORT: process.env.EMAIL_PORT || "NOT SET",
-        EMAIL_SECURE: process.env.EMAIL_SECURE || "NOT SET",
-        EMAIL_FROM: process.env.EMAIL_FROM || "NOT SET"
-      });
       throw error;
     }
   },
@@ -214,22 +158,20 @@ const transporter = {
    * Verify transporter connection configuration
    */
   verify: async (callback) => {
-    // If using SendGrid on production, we bypass Nodemailer verification
-    const useSendGrid = process.env.SENDGRID_API_KEY && (process.env.RENDER === "true" || process.env.NODE_ENV === "production");
-    if (useSendGrid) {
+    const brevoKey = process.env.BREVO_API_KEY;
+    const useBrevo = brevoKey && brevoKey !== "your-brevo-api-key";
+
+    if (useBrevo) {
       if (callback) callback(null, true);
       return Promise.resolve(true);
     }
 
     try {
-      const client = await getTransporter();
-      if (callback) {
-        client.verify((err, success) => {
-          callback(err, success);
-        });
-      } else {
-        return client.verify();
-      }
+      const client = await getEtherealTransporter();
+      if (!client) throw new Error("Ethereal transporter not available.");
+      client.verify((err, success) => {
+        if (callback) callback(err, success);
+      });
     } catch (err) {
       if (callback) callback(err);
       return Promise.reject(err);
